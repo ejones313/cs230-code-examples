@@ -34,16 +34,14 @@ class Net(nn.Module):
         super(Net, self).__init__()
 
         # the embedding takes as input the vocab_size and the embedding_dim
-        self.embedding = nn.Embedding(params.vocab_size, params.embedding_dim)
 
         # the LSTM takes as input the size of its input (embedding_dim), its hidden size
         # for more details on how to use it, check out the documentation
-        self.lstm = nn.LSTM(params.embedding_dim, params.lstm_hidden_dim, batch_first=True)
+        self.lstm_captions = nn.LSTM(params.word_embedding_dim, params.word_hidden_dim, batch_first=True)
+        self.lstm_videos = nn.LSTM(params.vid_embedding_dim, params.vid_hidden_dim, batch_first=True)
 
-        # the fully connected layer transforms the output to give the final output layer
-        self.fc = nn.Linear(params.lstm_hidden_dim, params.number_of_tags)
-        
-    def forward(self, s):
+        # the fully connected layer transforms the output to give the final output layer        
+    def forward(self, s, anchor_is_phrase = False):
         """
         This function defines how we use the components of our network to operate on an input batch.
 
@@ -52,6 +50,7 @@ class Net(nn.Module):
                the length of the longest sentence in the batch. For sentences shorter than seq_len, the remaining
                tokens are PADding tokens. Each row is a sentence with each element corresponding to the index of
                the token in the vocab.
+            s: (Variable) is a tensor containing triplet of embeddings (batch size x mess (3 sequences of embeddings))
 
         Returns:
             out: (Variable) dimension batch_size*seq_len x num_tags with the log probabilities of tokens for each token
@@ -60,24 +59,31 @@ class Net(nn.Module):
         Note: the dimensions after each step are provided
         """
         #                                -> batch_size x seq_len
-        # apply the embedding layer that maps each token to its embedding
-        s = self.embedding(s)            # dim: batch_size x seq_len x embedding_dim
-
+        # dim: batch_size x seq_len x embedding_dim
         # run the LSTM along the sentences of length seq_len
-        s, _ = self.lstm(s)              # dim: batch_size x seq_len x lstm_hidden_dim
+        anchors, positives, negatives = s.numpy()[0,:,:,:], s.numpy()[1,:,:,:], s.numpy()[2,:,:,:]
+        anchor_outputs, positive_outputs, negative_outputs = None, None, None
+        if anchor_is_phrase:
+            anchor_outputs, _ = self.lstm_captions(anchors)
+            positive_outputs, _ = self.lstm_videos(positives)
+            negative_outputs, _ = self.lstm_videos(negatives)
+        else:
+            anchor_outputs, _ = self.lstm_videos(anchors)
+            positive_outputs, _ = self.lstm_captions(positives)
+            negative_outputs, _ = self.lstm_captions(negatives)
+
+        # dim: batch_size x seq_len x lstm_hidden_dim
 
         # make the Variable contiguous in memory (a PyTorch artefact)
-        s = s.contiguous()
+        anchor_outputs = anchor_outputs.contiguous()
+        positive_outputs = positive_outputs.contiguous()
+        negative_outputs = negative_outputs.contiguous()
 
-        # reshape the Variable so that each row contains one token
-        s = s.view(-1, s.shape[2])       # dim: batch_size*seq_len x lstm_hidden_dim
-
-        # apply the fully connected layer and obtain the output (before softmax) for each token
-        s = self.fc(s)                   # dim: batch_size*seq_len x num_tags
+        tuples = np.array([anchor_outputs, positive_outputs, negative_outputs])
 
         # apply log softmax on each token's output (this is recommended over applying softmax
         # since it is numerically more stable)
-        return F.log_softmax(s, dim=1)   # dim: batch_size*seq_len x num_tags
+        return tuples  # dim: batch_size*seq_len x num_tags
 
 
 def loss_fn(outputs, labels):
