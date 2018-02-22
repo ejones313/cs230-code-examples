@@ -6,13 +6,16 @@ import os
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.optim as optim
-from tqdm import trange
+#from tqdm import trange
 
 import utils
 import model.net as net
 from model.data_loader import DataLoader
 from evaluate import evaluate
+import data_prep
+from torch.autograd import Variable
 
 
 parser = argparse.ArgumentParser()
@@ -23,7 +26,22 @@ parser.add_argument('--restore_file', default=None,
                     training")  # 'best' or 'train'
 
 
-def train(model, optimizer, loss_fn, data_iterator, metrics, params, num_steps):
+def unscramble(output, lengths, original_indices, batch_size):
+    a = (torch.from_numpy(np.array(lengths) - 1)).view(-1,1).expand(output.size(0),output.size(2))
+    final_ids = (Variable(torch.from_numpy(np.array(lengths) - 1))).view(-1,1).expand(output.size(0),output.size(2)).unsqueeze(1)
+    #Expand is incorrect - wrong axis?
+    print(final_ids.data)
+    print(output.shape)
+    final_outputs = output.gather(1, final_ids).squeeze()
+    #final_outputs = torch.gather(output, 1, final_ids).squeeze()
+
+    mapping = original_indices.view(-1,1).expand(batch_size, output.size(1))
+    unscrambled_outputs = final_outputs.gather(0, Variable(mapping))
+
+    return unscrambled_outputs
+
+# Does gradient descent on one epoch
+def train(word_model, vid_model, word_optimizer, vid_optimizer, loss_fn, dataSet, metrics, params, anchor_is_phrase = True):
     """Train the model on `num_steps` batches
 
     Args:
@@ -37,31 +55,99 @@ def train(model, optimizer, loss_fn, data_iterator, metrics, params, num_steps):
     """
 
     # set model to training mode
-    model.train()
+    word_model.train()
+    vid_model.train()
+    word_model.zero_grad()
+    vid_model.zero_grad()
 
     # summary for current training loop and a running average object for loss
     summ = []
     loss_avg = utils.RunningAverage()
     
+
+    batch_size = params.batch_size
+    dataset_size = len(dataSet)
+    num_batches = dataset_size // batch_size
+
     # Use tqdm for progress bar
-    t = trange(num_steps) 
-    for i in t:
-        # fetch the next training batch
-        train_batch, labels_batch = next(data_iterator)
+    #for batch in dataLoader:
+    for batch_num in range(0,num_batches-1):
+        batch, indices = dataSet.get_batch(batch_size)
+
+        anchor_batch = batch[0]
+        positive_batch = batch[1]
+        negative_batch = batch[2]
+
+        anchor_indices = indices[0]
+        positive_indices = indices[1]
+        negative_indices = indices[2]
 
         # compute model output and loss
-        output_batch = model(train_batch)
-        loss = loss_fn(output_batch, labels_batch)
+        if anchor_is_phrase:
+            anchor_output = word_model(anchor_batch)
+            positive_output = vid_model(positive_batch)
+            negative_output = vid_model(negative_batch)
+        else:
+            anchor_output = vid_model(anchor_batch)
+            positive_output = word_model(positive_batch)
+            negative_output = word_model(negative_batch)
+
+        anchor_output, anchor_lengths = nn.utils.rnn.pad_packed_sequence(anchor_output)
+        positive_output, positive_lengths = nn.utils.rnn.pad_packed_sequence(positive_output)
+        negative_output, negative_lengths = nn.utils.rnn.pad_packed_sequence(negative_output)
+
+        anchor_unscrambled = unscramble(anchor_output, anchor_lengths, anchor_indices, batch_size)
+        positive_unscrambled = unscramble(positive_output, positive_lengths, positive_indices, batch_size)
+        negative_unscrambled = unscramble(negative_output, negative_lengths, negative_indices, batch_size)
+
+        #print(type(anchor_output))
+
+        '''anchor_unscrambled = torch.autograd.Variable(torch.zeros(anchor_output.shape))
+        positive_unscrambled = torch.autograd.Variable(torch.zeros(positive_output.shape))
+        negative_unscrambled = torch.autograd.Variable(torch.zeros(negative_output.shape))
+        #anchor_unscrambled = torch.zeros(anchor_output.shape)
+        #positive_unscrambled = torch.zeros(positive_output.shape)
+        #negative_unscrambled = torch.zeros(negative_output.shape)
+
+        for i in range(batch_size):
+            anchor_unscrambled[:,anchor_indices[i],:] = anchor_output[:,i,:].data
+            positive_unscrambled[:,positive_indices[i],:] = positive_output[:,i,:].data
+            negative_unscrambled[:,negative_indices[i],:] = negative_output[:,i,:].data
+
+        #print(type(anchor_unscrambled))
+
+        anchor_output = anchor_unscrambled
+        positive_output = positive_unscrambled
+        negative_output = negative_unscrambled'''
+
+        print(type(anchor_output))
+
+        #print(type(anchor_output))
+
+        '''idx = (seq_sizes - 1).view(-1, 1).expand(output.size(0), output.size(2)).unsqueeze(1)
+        decoded = output.gather(1, idx).squeeze()
+
+        decoded[original_index] = decoded'''
+        loss = 0
+        for i in range(batch_size):
+            print(type(loss_fn(anchor_output[-2:-1,i,:], positive_output[-2:-1,i,:], negative_output[-2:-1,i,:])))
+            loss += loss_fn(anchor_output[-2:-1,i,:], positive_output[-2:-1,i,:], negative_output[-2:-1,i,:])
+        loss = loss/batch_size
+
+        print(loss)
 
         # clear previous gradients, compute gradients of all variables wrt loss
-        optimizer.zero_grad()
+        vid_optimizer.zero_grad()
+        word_optimizer.zero_grad()
         loss.backward()
 
         # performs updates using calculated gradients
-        optimizer.step()
+        word_optimizer.step()
+        vid_optimizer.step()
 
         # Evaluate summaries only once in a while
-        if i % params.save_summary_steps == 0:
+        if False:
+        #if i % params.save_summary_steps == 0:
             # extract data from torch Variable, move to cpu, convert to numpy arrays
             output_batch = output_batch.data.cpu().numpy()
             labels_batch = labels_batch.data.cpu().numpy()
@@ -74,15 +160,15 @@ def train(model, optimizer, loss_fn, data_iterator, metrics, params, num_steps):
 
         # update the average loss
         loss_avg.update(loss.data[0])
-        t.set_postfix(loss='{:05.3f}'.format(loss_avg()))
+        #t.set_postfix(loss='{:05.3f}'.format(loss_avg()))
 
     # compute mean of all metrics in summary
-    metrics_mean = {metric:np.mean([x[metric] for x in summ]) for metric in summ[0]} 
-    metrics_string = " ; ".join("{}: {:05.3f}".format(k, v) for k, v in metrics_mean.items())
-    logging.info("- Train metrics: " + metrics_string)
+    #metrics_mean = {metric:np.mean([x[metric] for x in summ]) for metric in summ[0]} 
+    #metrics_string = " ; ".join("{}: {:05.3f}".format(k, v) for k, v in metrics_mean.items())
+    #logging.info("- Train metrics: " + metrics_string)
     
 
-def train_and_evaluate(model, train_data, val_data, optimizer, loss_fn, metrics, params, model_dir, restore_file=None):
+def train_and_evaluate(phrase_model, vid_model, train_filename, val_filename, phrase_optimizer, vid_optimizer, loss_fn, metrics, params, model_dir, restore_file=None):
     """Train the model and evaluate every epoch.
 
     Args:
@@ -97,23 +183,33 @@ def train_and_evaluate(model, train_data, val_data, optimizer, loss_fn, metrics,
         restore_file: (string) optional- name of file to restore from (without its extension .pth.tar)
     """
     # reload weights from restore_file if specified
-    if restore_file is not None:
-        restore_path = os.path.join(args.model_dir, args.restore_file + '.pth.tar')
-        logging.info("Restoring parameters from {}".format(restore_path))
-        utils.load_checkpoint(restore_path, model, optimizer)
+    #if restore_file is not None:
+    #    restore_path = os.path.join(args.model_dir, args.restore_file + '.pth.tar')
+    #    logging.info("Restoring parameters from {}".format(restore_path))
+    #    utils.load_checkpoint(restore_path, model, optimizer)
         
     best_val_acc = 0.0
 
-    for epoch in range(params.num_epochs):
+    #Added
+    train_dataset = data_prep.Dataset(train_filename)
+    #train_loader = torch.utils.data.DataLoader(train_dataset, params.batch_size)
+    """
+    val_dataset = data_prep.Dataset(val_filename)
+    val_loader = torch.utils.data.DataLoader(val_dataset)
+    """
+    #for epoch in range(params.num_epochs):
+    for epoch in range(50):
         # Run one epoch
         logging.info("Epoch {}/{}".format(epoch + 1, params.num_epochs))
 
         # compute number of batches in one epoch (one full pass over the training set)
-        num_steps = (params.train_size + 1) // params.batch_size
-        train_data_iterator = data_loader.data_iterator(train_data, params, shuffle=True)
-        train(model, optimizer, loss_fn, train_data_iterator, metrics, params, num_steps)
+        #TODO: Add params.filename
+
+        train(phrase_model, vid_model, phrase_optimizer, vid_optimizer, loss_fn, train_dataset, metrics, params)
+        train_dataset.reset_counter()
             
         # Evaluate for one epoch on validation set
+        """
         num_steps = (params.val_size + 1) // params.batch_size
         val_data_iterator = data_loader.data_iterator(val_data, params, shuffle=False)
         val_metrics = evaluate(model, loss_fn, val_data_iterator, metrics, params, num_steps)
@@ -140,6 +236,7 @@ def train_and_evaluate(model, train_data, val_data, optimizer, loss_fn, metrics,
         # Save latest val metrics in a json file in the model directory
         last_json_path = os.path.join(model_dir, "metrics_val_last_weights.json")
         utils.save_dict_to_json(val_metrics, last_json_path)
+        """
     
 
 if __name__ == '__main__':
@@ -149,6 +246,12 @@ if __name__ == '__main__':
     json_path = os.path.join(args.model_dir, 'params.json')
     assert os.path.isfile(json_path), "No json configuration file found at {}".format(json_path)
     params = utils.Params(json_path)
+    params.word_embedding_dim = 300
+    params.word_hidden_dim = 600
+    params.vid_embedding_dim = 500
+    params.vid_hidden_dim = 600
+
+    params.batch_size = 1
 
     # use GPU if available
     params.cuda = torch.cuda.is_available()
@@ -158,32 +261,42 @@ if __name__ == '__main__':
     if params.cuda: torch.cuda.manual_seed(230)
         
     # Set the logger
+
     utils.set_logger(os.path.join(args.model_dir, 'train.log'))
 
     # Create the input data pipeline
     logging.info("Loading the datasets...")
     
     # load data
+    """
     data_loader = DataLoader(args.data_dir, params)
     data = data_loader.load_data(['train', 'val'], args.data_dir)
     train_data = data['train']
     val_data = data['val']
+    """
+    train_filename = 'subset_two.pkl'
+    val_filename = 'foo.py'
 
     # specify the train and val dataset sizes
+    """
     params.train_size = train_data['size']
     params.val_size = val_data['size']
+    """
 
     logging.info("- done.")
 
     # Define the model and optimizer
-    model = net.Net(params).cuda() if params.cuda else net.Net(params)
-    optimizer = optim.Adam(model.parameters(), lr=params.learning_rate)
+    phrase_model = net.Net(params, True).cuda() if params.cuda else net.Net(params, True)
+    vid_model = net.Net(params, False).cuda() if params.cuda else net.Net(params, False)
+    phrase_optimizer = optim.Adam(phrase_model.parameters(), lr=params.learning_rate)
+    vid_optimizer = optim.Adam(vid_model.parameters(), lr=params.learning_rate)
     
     # fetch loss function and metrics
-    loss_fn = net.loss_fn
-    metrics = net.metrics
+    loss_fn = torch.nn.modules.loss.TripletMarginLoss()
+    #metrics = net.metrics
+    metrics = None
 
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
-    train_and_evaluate(model, train_data, val_data, optimizer, loss_fn, metrics, params, args.model_dir,
+    train_and_evaluate(phrase_model, vid_model, train_filename, val_filename, phrase_optimizer, vid_optimizer, loss_fn, metrics, params, args.model_dir,
                        args.restore_file)

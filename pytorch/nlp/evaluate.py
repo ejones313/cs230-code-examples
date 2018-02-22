@@ -17,7 +17,7 @@ parser.add_argument('--restore_file', default='best', help="name of the file in 
                      containing weights to load")
 
 
-def evaluate(model, loss_fn, data_iterator, metrics, params, num_steps):
+def evaluate(model, loss_fn, loader, metrics, params):
     """Evaluate the model on `num_steps` batches.
 
     Args:
@@ -36,13 +36,11 @@ def evaluate(model, loss_fn, data_iterator, metrics, params, num_steps):
     summ = []
 
     # compute metrics over the dataset
-    for _ in range(num_steps):
-        # fetch the next evaluation batch
-        data_batch, labels_batch = next(data_iterator)
-        
+    for batch in loader:
+        # fetch the next evaluation batch        
         # compute model output
-        output_batch = model(data_batch)
-        loss = loss_fn(output_batch, labels_batch)
+        output_batch = model(batch)
+        loss = loss_fn(output_batch)
 
         # extract data from torch Variable, move to cpu, convert to numpy arrays
         output_batch = output_batch.data.cpu().numpy()

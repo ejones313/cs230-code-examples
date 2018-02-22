@@ -56,7 +56,7 @@ counter = 0
 for i in keys:
     subset[i] = full_objects[i]
     counter += 1
-    if counter == 100:
+    if counter == 1:
         break
 
 
@@ -64,14 +64,14 @@ for i in keys:
 
 
 import pickle
-with open('subset.pkl', 'wb') as fp:
+with open('subset_one.pkl', 'wb') as fp:
     pickle.dump(subset, fp)
 
 
 # In[16]:
 
 
-subset_test = pickle.load(open('subset.pkl','rb'))
+subset_test = pickle.load(open('subset.pkl_one','rb'))
 
 
 # In[17]:

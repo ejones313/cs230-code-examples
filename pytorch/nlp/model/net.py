@@ -19,7 +19,7 @@ class Net(nn.Module):
     The documentation for all the various components available to you is here: http://pytorch.org/docs/master/nn.html
     """
 
-    def __init__(self, params):
+    def __init__(self, params, is_phrase):
         """
         We define an recurrent network that predicts the NER tags for each token in the sentence. The components
         required are:
@@ -37,8 +37,10 @@ class Net(nn.Module):
 
         # the LSTM takes as input the size of its input (embedding_dim), its hidden size
         # for more details on how to use it, check out the documentation
-        self.lstm_captions = nn.LSTM(params.word_embedding_dim, params.word_hidden_dim, batch_first=True)
-        self.lstm_videos = nn.LSTM(params.vid_embedding_dim, params.vid_hidden_dim, batch_first=True)
+        if is_phrase:
+            self.lstm = nn.LSTM(params.word_embedding_dim, params.word_hidden_dim, batch_first=True)
+        else:
+            self.lstm = nn.LSTM(params.vid_embedding_dim, params.vid_hidden_dim, batch_first=True)
 
         # the fully connected layer transforms the output to give the final output layer        
     def forward(self, s, anchor_is_phrase = False):
@@ -46,11 +48,8 @@ class Net(nn.Module):
         This function defines how we use the components of our network to operate on an input batch.
 
         Args:
-            s: (Variable) contains a batch of sentences, of dimension batch_size x seq_len, where seq_len is
-               the length of the longest sentence in the batch. For sentences shorter than seq_len, the remaining
-               tokens are PADding tokens. Each row is a sentence with each element corresponding to the index of
-               the token in the vocab.
             s: (Variable) is a tensor containing triplet of embeddings (batch size x mess (3 sequences of embeddings))
+            s: (Variable) tensor with batch_size x max_sequence_len x embedding_dim
 
         Returns:
             out: (Variable) dimension batch_size*seq_len x num_tags with the log probabilities of tokens for each token
@@ -61,91 +60,6 @@ class Net(nn.Module):
         #                                -> batch_size x seq_len
         # dim: batch_size x seq_len x embedding_dim
         # run the LSTM along the sentences of length seq_len
-        anchors, positives, negatives = s.numpy()[0,:,:,:], s.numpy()[1,:,:,:], s.numpy()[2,:,:,:]
-        anchor_outputs, positive_outputs, negative_outputs = None, None, None
-        if anchor_is_phrase:
-            anchor_outputs, _ = self.lstm_captions(anchors)
-            positive_outputs, _ = self.lstm_videos(positives)
-            negative_outputs, _ = self.lstm_videos(negatives)
-        else:
-            anchor_outputs, _ = self.lstm_videos(anchors)
-            positive_outputs, _ = self.lstm_captions(positives)
-            negative_outputs, _ = self.lstm_captions(negatives)
-
-        # dim: batch_size x seq_len x lstm_hidden_dim
-
-        # make the Variable contiguous in memory (a PyTorch artefact)
-        anchor_outputs = anchor_outputs.contiguous()
-        positive_outputs = positive_outputs.contiguous()
-        negative_outputs = negative_outputs.contiguous()
-
-        tuples = np.array([anchor_outputs, positive_outputs, negative_outputs])
-
-        # apply log softmax on each token's output (this is recommended over applying softmax
-        # since it is numerically more stable)
-        return tuples  # dim: batch_size*seq_len x num_tags
-
-
-def loss_fn(outputs, labels):
-    """
-    Compute the cross entropy loss given outputs from the model and labels for all tokens. Exclude loss terms
-    for PADding tokens.
-
-    Args:
-        outputs: (Variable) dimension batch_size*seq_len x num_tags - log softmax output of the model
-        labels: (Variable) dimension batch_size x seq_len where each element is either a label in [0, 1, ... num_tag-1],
-                or -1 in case it is a PADding token.
-
-    Returns:
-        loss: (Variable) cross entropy loss for all tokens in the batch
-
-    Note: you may use a standard loss function from http://pytorch.org/docs/master/nn.html#loss-functions. This example
-          demonstrates how you can easily define a custom loss function.
-    """
-
-    # reshape labels to give a flat vector of length batch_size*seq_len
-    labels = labels.view(-1)
-
-    # since PADding tokens have label -1, we can generate a mask to exclude the loss from those terms
-    mask = (labels >= 0).float()
-
-    # indexing with negative values is not supported. Since PADded tokens have label -1, we convert them to a positive
-    # number. This does not affect training, since we ignore the PADded tokens with the mask.
-    labels = labels % outputs.shape[1]
-
-    num_tokens = int(torch.sum(mask).data[0])
-
-    # compute cross entropy loss for all tokens (except PADding tokens), by multiplying with mask.
-    return -torch.sum(outputs[range(outputs.shape[0]), labels]*mask)/num_tokens
-    
-    
-def accuracy(outputs, labels):
-    """
-    Compute the accuracy, given the outputs and labels for all tokens. Exclude PADding terms.
-
-    Args:
-        outputs: (np.ndarray) dimension batch_size*seq_len x num_tags - log softmax output of the model
-        labels: (np.ndarray) dimension batch_size x seq_len where each element is either a label in
-                [0, 1, ... num_tag-1], or -1 in case it is a PADding token.
-
-    Returns: (float) accuracy in [0,1]
-    """
-
-    # reshape labels to give a flat vector of length batch_size*seq_len
-    labels = labels.ravel()
-
-    # since PADding tokens have label -1, we can generate a mask to exclude the loss from those terms
-    mask = (labels >= 0)
-
-    # np.argmax gives us the class predicted for each token by the model
-    outputs = np.argmax(outputs, axis=1)
-
-    # compare outputs with labels and divide by number of tokens (excluding PADding tokens)
-    return np.sum(outputs==labels)/float(np.sum(mask))
-
-
-# maintain all metrics required in this dictionary- these are used in the training and evaluation loops
-metrics = {
-    'accuracy': accuracy,
-    # could add more metrics such as accuracy for each token type
-}
+        s, _ = self.lstm(s)
+        s.data.contiguous()
+        return s
