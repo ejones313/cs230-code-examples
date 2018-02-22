@@ -27,15 +27,11 @@ parser.add_argument('--restore_file', default=None,
 
 
 def unscramble(output, lengths, original_indices, batch_size):
-    a = (torch.from_numpy(np.array(lengths) - 1)).view(-1,1).expand(output.size(0),output.size(2))
-    final_ids = (Variable(torch.from_numpy(np.array(lengths) - 1))).view(-1,1).expand(output.size(0),output.size(2)).unsqueeze(1)
-    #Expand is incorrect - wrong axis?
-    print(final_ids.data)
-    print(output.shape)
-    final_outputs = output.gather(1, final_ids).squeeze()
-    #final_outputs = torch.gather(output, 1, final_ids).squeeze()
+    final_ids = (Variable(torch.from_numpy(np.array(lengths) - 1))).view(-1,1).expand(output.size(1),output.size(2)).unsqueeze(0)
+    final_outputs = output.gather(0, final_ids).squeeze()#.unsqueeze(0)
 
-    mapping = original_indices.view(-1,1).expand(batch_size, output.size(1))
+    mapping = original_indices.view(-1,1).expand(batch_size, output.size(2))
+    print(mapping.shape)
     unscrambled_outputs = final_outputs.gather(0, Variable(mapping))
 
     return unscrambled_outputs
