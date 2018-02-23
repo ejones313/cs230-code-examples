@@ -102,7 +102,7 @@ def train(word_model, vid_model, word_optimizer, vid_optimizer, loss_fn, dataSet
             loss += loss_fn(anchor_output[-2:-1,i,:], positive_output[-2:-1,i,:], negative_output[-2:-1,i,:])
         loss = loss/batch_size
 
-        print("Loss", loss)
+        print("Loss", loss.data)
 
         # clear previous gradients, compute gradients of all variables wrt loss
         vid_optimizer.zero_grad()
@@ -149,6 +149,7 @@ if __name__ == '__main__':
 
     # Load the parameters from json file
     args = parser.parse_args()
+    args.model_dir = '.'
     json_path = os.path.join(args.model_dir, 'params.json')
     assert os.path.isfile(json_path), "No json configuration file found at {}".format(json_path)
     params = utils.Params(json_path)
@@ -180,7 +181,7 @@ if __name__ == '__main__':
     # Define the models and optimizers
     word_model = net.Net(params, True).cuda() if params.cuda else net.Net(params, True)
     vid_model = net.Net(params, False).cuda() if params.cuda else net.Net(params, False)
-    word_optimizer = optim.Adam(phrase_model.parameters(), lr=params.learning_rate)
+    word_optimizer = optim.Adam(word_model.parameters(), lr=params.learning_rate)
     vid_optimizer = optim.Adam(vid_model.parameters(), lr=params.learning_rate)
     
     # fetch loss function and metrics
