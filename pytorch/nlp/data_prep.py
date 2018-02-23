@@ -10,7 +10,7 @@ class Dataset(data.Dataset):
 
     def __init__(self, filename, anchor_is_phrase = True):
         pairs_dict = pickle.load( open( filename, "rb" ) )
-        self.triplet_dict = self.make_triplets(pairs_dict, anchor_is_phrase, num_negative = 1)
+        self.triplet_dict = self.make_triplets(pairs_dict, anchor_is_phrase)
         self.curr_index = 0
 
 
@@ -97,18 +97,10 @@ class Dataset(data.Dataset):
         anchors = Variable(torch.from_numpy(np.array(anchor_padded)).float())
         positives = Variable(torch.from_numpy(np.array(positive_padded)).float())
         negatives = Variable(torch.from_numpy(np.array(negative_padded)).float())
-        #anchors = torch.from_numpy(np.array(anchor_padded)).float()
-        #positives = torch.from_numpy(np.array(positive_padded)).float()
-        #negatives = torch.from_numpy(np.array(negative_padded)).float()
 
         anchors = nn.utils.rnn.pack_padded_sequence(anchors, list(anchor_lengths))
         positives = nn.utils.rnn.pack_padded_sequence(positives, list(positive_lengths))
         negatives = nn.utils.rnn.pack_padded_sequence(negatives, list(negative_lengths))
-
-
-        #anchors = Variable(torch.unsqueeze(torch.from_numpy(np.array(anchors[0])).float(),1), requires_grad = True)
-        #positives = Variable(torch.unsqueeze(torch.from_numpy(np.array(positives[0])).float(),1), requires_grad = True)
-        #negatives = Variable(torch.unsqueeze(torch.from_numpy(np.array(negatives[0])).float(),1), requires_grad = True)
 
         return (anchors, positives, negatives), (anchor_indices, positive_indices, negative_indices)
 

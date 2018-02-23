@@ -31,7 +31,6 @@ def unscramble(output, lengths, original_indices, batch_size):
     final_outputs = output.gather(0, final_ids).squeeze()#.unsqueeze(0)
 
     mapping = original_indices.view(-1,1).expand(batch_size, output.size(2))
-    print(mapping.shape)
     unscrambled_outputs = final_outputs.gather(0, Variable(mapping))
 
     return unscrambled_outputs
@@ -96,37 +95,8 @@ def train(word_model, vid_model, word_optimizer, vid_optimizer, loss_fn, dataSet
         positive_unscrambled = unscramble(positive_output, positive_lengths, positive_indices, batch_size)
         negative_unscrambled = unscramble(negative_output, negative_lengths, negative_indices, batch_size)
 
-        #print(type(anchor_output))
-
-        '''anchor_unscrambled = torch.autograd.Variable(torch.zeros(anchor_output.shape))
-        positive_unscrambled = torch.autograd.Variable(torch.zeros(positive_output.shape))
-        negative_unscrambled = torch.autograd.Variable(torch.zeros(negative_output.shape))
-        #anchor_unscrambled = torch.zeros(anchor_output.shape)
-        #positive_unscrambled = torch.zeros(positive_output.shape)
-        #negative_unscrambled = torch.zeros(negative_output.shape)
-
-        for i in range(batch_size):
-            anchor_unscrambled[:,anchor_indices[i],:] = anchor_output[:,i,:].data
-            positive_unscrambled[:,positive_indices[i],:] = positive_output[:,i,:].data
-            negative_unscrambled[:,negative_indices[i],:] = negative_output[:,i,:].data
-
-        #print(type(anchor_unscrambled))
-
-        anchor_output = anchor_unscrambled
-        positive_output = positive_unscrambled
-        negative_output = negative_unscrambled'''
-
-        print(type(anchor_output))
-
-        #print(type(anchor_output))
-
-        '''idx = (seq_sizes - 1).view(-1, 1).expand(output.size(0), output.size(2)).unsqueeze(1)
-        decoded = output.gather(1, idx).squeeze()
-
-        decoded[original_index] = decoded'''
         loss = 0
         for i in range(batch_size):
-            print(type(loss_fn(anchor_output[-2:-1,i,:], positive_output[-2:-1,i,:], negative_output[-2:-1,i,:])))
             loss += loss_fn(anchor_output[-2:-1,i,:], positive_output[-2:-1,i,:], negative_output[-2:-1,i,:])
         loss = loss/batch_size
 
@@ -194,7 +164,7 @@ def train_and_evaluate(phrase_model, vid_model, train_filename, val_filename, ph
     val_loader = torch.utils.data.DataLoader(val_dataset)
     """
     #for epoch in range(params.num_epochs):
-    for epoch in range(50):
+    for epoch in range(10):
         # Run one epoch
         logging.info("Epoch {}/{}".format(epoch + 1, params.num_epochs))
 
@@ -247,7 +217,7 @@ if __name__ == '__main__':
     params.vid_embedding_dim = 500
     params.vid_hidden_dim = 600
 
-    params.batch_size = 1
+    params.batch_size = 5
 
     # use GPU if available
     params.cuda = torch.cuda.is_available()
@@ -270,7 +240,7 @@ if __name__ == '__main__':
     train_data = data['train']
     val_data = data['val']
     """
-    train_filename = 'subset_two.pkl'
+    train_filename = 'subset.pkl'
     val_filename = 'foo.py'
 
     # specify the train and val dataset sizes
