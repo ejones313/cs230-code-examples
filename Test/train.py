@@ -1,9 +1,9 @@
 """Train the model"""
 
 import argparse
-import logging
 import os
 
+import logging
 import numpy as np
 import torch
 import torch.nn as nn
@@ -11,9 +11,7 @@ import torch.optim as optim
 #from tqdm import trange
 
 import utils
-import model.net as net
-from model.data_loader import DataLoader
-from evaluate import evaluate
+import net
 import data_prep
 from torch.autograd import Variable
 
